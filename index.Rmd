@@ -19,15 +19,20 @@ tidy=TRUE, tidy.opts=list(width.cutoff=60), R.options=list(max.print=100))
 
 ## Data Wrangling, Exploration, Visualization
 
-### Name and EID here
+### Samrina Acharya
 
 #### Introduction 
 
-Paragraph or two introducing your datasets and variables, why they are interesting to you, etc.
+As streaming services grow in popularity, Netflix has remained among the top in terms of viewership both domestically and internationally. In a report released in 2018, Netflix announced that they had tripled their available content. In this project I will be taking a dataset of the movies on Netflix in 2019 and comparing it with the bechdel test dataset to determine whether Netflix has been contributing to the gender inequality in Hollywood and whether or not this exclusion indicates any trends in popularity based off movie profits. The Bechdel test is a test designed to determine gender bias in media by evaluating female role character development. To pass the test the rules that must be met are that there must be more than two named female characters, they must have a conversation with each other that isn't entirely focused on a male character. I obtained my netflix dataset from Kaggle by user Shivam Bansal via url linking to the data from the netflix_titles.csv file. The variables of interest are title, director, country, and listed in (or genre). I got the Bechdel dataset from the fivethirtyeight package which I downloaded on to R to access. The variables of interest in this dataset are also title, test, binary (pass/fail),budget, domestic gross, and international gross.
 
 ```{R}
-# read your datasets in here, e.g., with read_csv()
-
+library(tidyverse)
+library(dplyr)
+netflix_data <- read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-04-20/netflix_titles.csv')
+install.packages("fivethirtyeightdata", repos = "https://fivethirtyeightdata.github.io/drat/", type = "source")
+library(fivethirtyeight)
+library(fivethirtyeightdata)
+bechdeltest <- bechdel
 ```
 
 #### Tidying: Reshaping
@@ -35,7 +40,7 @@ Paragraph or two introducing your datasets and variables, why they are interesti
 If your datasets are tidy already, demonstrate that you can reshape data with pivot wider/longer here (e.g., untidy and then retidy). Alternatively, it may be easier to wait until the wrangling section so you can reshape your summary statistics. Note here if you are going to do this.
 
 ```{R}
-# your tidying code (if applicable; can also wait until wrangling section)
+# Included in wranling section
 ```
 
     
@@ -43,48 +48,100 @@ If your datasets are tidy already, demonstrate that you can reshape data with pi
 
 ```{R}
 # your joining code
-
+library(dplyr)
+nrow(netflix_data)
+nrow(bechdeltest)
+nrow(netflix_data)-nrow(bechdeltest)
+netflix_data <- netflix_data %>% filter(type == "Movie")
+joined <- inner_join(netflix_data, bechdeltest, by="title")
+nrow(joined)
+glimpse(bechdeltest)
+glimpse(netflix_data)
+glimpse(joined)
 # your joining code
 ```
 
-Discussions of joining here. Feel encouraged to break up into more than once code chunk and discuss each in turn.
+I decided to do an inner join by title between the two datasets to only include the films that they had in common for data analysis.This is because any film not on netflix or not containing bechdel data would be irrelevant for the purposes of my project.
+
+For the netflix database, there are 7787 rows while for the bechdel test dataset there are only 1794. The joined dataset is 341 with 5993 titles excluded. The lost movies could result from not being offered for streaming on netflix or the movie coming out in the years after the bechdel dataset data was collected (2013). The unique IDs in the netflix dataset included show id, type, director, cast, country, date added, rating, duration, listed_in and description. The unique IDs in the bechdel test dataset include imbd, test, clean test, binary, budget, domestic gross, interational gross, code, period code and decade code. The IDs in common between the datasets include title and release year (although having different variable names).
 
 ####  Wrangling
 
 ```{R}
-# your wrangling code
+library(tidyverse)
+#selecting to remove columns
+shorterjoin <- joined %>% select(-show_id, -cast, -release_year, -description, -code,-period_code, -decade_code, -budget_2013, -domgross_2013, -intgross_2013, -clean_test)
+#mutating to add new columns for total gross and net income percent
+mutated <- shorterjoin %>% mutate(totalgross= domgross + intgross) %>% mutate("net"= ((totalgross-budget)/budget)*100)
 
-# your wrangling code
+#string replace to remove disagrees from test column
+mutated_cleantest <- mutated %>% mutate(test = str_replace(test, "-disagree",""))
+#string replace to isolate primary genre from listed netflix categories using regex
+mutated_cleangenre <- mutated_cleantest %>% mutate(genre = str_replace(listed_in, ",.*" , ""))
 
-# your wrangling code
+
+#CATEGORICAL VARIABLE SUMMARY STATISTICS:
+#Summarize by binary means and genre with count of binary
+mutated_cleangenre %>% group_by(binary) %>% count
+mutated_cleangenre %>% group_by(binary) %>% summarize(mean= mean(net, na.rm=T), standard_deviation = sd(net, na.rm=T))
+mutated_cleantest %>% group_by(test) %>% count
+mutated_cleangenre %>% group_by(genre, binary) %>% count %>% arrange(desc(n))
+#sort by year and bechdel test count
+mutated_cleangenre %>% group_by(year, binary) %>% count %>% arrange(desc(n))
+#Rating and bechdel test
+mutated_cleangenre %>% group_by(year) %>% count %>% arrange(desc(n))
+mutated_cleangenre %>% group_by(rating, binary) %>% count %>% arrange(desc(n))
+
+#Summary statistics Table
+library(knitr)
+library(kableExtra)
+mutated_cleangenre %>% na.omit %>% summarize_if(is.numeric, list("_mean"= mean, "_median"= median, "_sd"= sd)) %>% pivot_longer(contains("_")) %>% separate(name, into=c("Category", "Stat"), sep= "__") %>% mutate_if(is.numeric, round, 3)%>% na.omit -> StatsTable
+StatsTable %>% kable(digits = 3, align = 'c', col.names=str_to_title(names(.)))
+
+#counting total NAs
+count.nas <- function(x)sum(is.na(x))
+mutated_cleangenre %>% summarize_all(count.nas)
 ```
+I first made changes to my joined dataset columns using select to delete unnecessary IDs such as show_id, cast, release_year, description, code, period_code, decade_code, budget_2013,  domgross_2013, intgross_2013, and clean_test saving the dataset as shorterjoin. Then, I used the mutate function to add up domestic gross and international gross to make a total combined gross column for better analysis and in order to calculate my net film earnings saving that variable as net. Finally using stringr and regex I mutated the test column to get rid of “-disagree” at the end of any failed tests and made a new Netflix genre column using the first genre in listed_in categories by detecting the comma and replacing everything after it with no space. 
 
-Your discussion of wrangling section here. Feel encouraged to break up into more than once code chunk and discuss each in turn.
+I analyzed the categorical variables of binary (pass/fail), rating, genre, year, and test. Overall, I found that there were more failed tests than passed ones of 179 to 131 respectively by grouping by and counting binary. Then, I used the group by and summarize functions to find the mean and standard deviation of net for both the pass and fail groups. I found that the fail group had a higher mean of 1178% compared to the 990% in the pass group. The standard deviations for both were very large with 5650 and 2087 in the fail and pass groups respectively indicating a lot of variation between points and potential outliers. I then used group by and count to note the number of films that fell into each test category. The largest count was the ok group with 131 followed by the notalk. The lowest count and easiest test to pass was nowomen with 21 films falling within this category. Next. I grouped by genre and binary to find the count of passes and fails within this variable. Using arrange by descending order I found that the largest count for failed tests were action & adventure movies with 65 followed by dramas. This could have possibly been due to the large overall number of films within this category to begin with as indicated by the genre with the most passes also being dramas with 32. Then, I grouped by year and binary to find the counts and arranged them to find that 2009 had the most films in general and the most fails with 28 out the the total 38. This was followed by 2011 with 18 out of 26 while 2010 had the most passes of 14. Finally, I grouped by rating to find that R rated movies had the most fails with 73 out of 130 followed by PG-13. 
 
+My numeric variables were Budget, Domestic Gross, International Gross, and Net. I created a table using the knitr and kableExtra packages to display data for the summary statistics (mean, median and sd) and used pivot_longer to tidy it into 3 columns of category, stat and value. My findings indicated that the combined net had a mean of 1.101783e+03. Additionally, I found that the overall domestic gross values were less than the overall international gross. The budget mean was generally much smaller than the combination of the two numbers indicating significant profit as shown by the mean net percentages being over 100%. 
 
 #### Visualizing
 
 ```{R}
-# your plot 1
+mutated_cleangenre %>% group_by(year, binary) %>% count %>% ggplot(aes(x= year,y=n, color= binary)) + geom_point() + geom_smooth(method= "lm") + theme_minimal()+ ggtitle("Relationship between Movie Release Year and Bechdel Test Pass/Fail Counts") + ylab("Count") + xlab("Year") 
+
+
 ```
 
-Your discussion of plot 1
+For Plot 1, I made a scatterplot of the relationship between movie release year and bechdel test pass/fail counts with year on the x axis and counts on the y. I colored by binary as indicated by the legend and created regression lines using geom_smooth to show the general positive trend of counts and that there were consistantly more fails than passes in each year. A minimal theme was also applied to this graph.
 
 ```{R}
-# your plot 2
+mutated_cleangenre %>% filter(net < 10000) %>% ggplot(aes(x=rating, y=net))+geom_boxplot() + facet_grid(~binary) + geom_jitter(alpha=.4, aes(color=rating)) + theme(legend.position="none") + 
+    ggtitle("Average Net Profit for Films of Different Ratings based on Bechdel Test Results")+
+      xlab("Film Ratings")+
+       ylab("Average Net Profit (%)")
+
+
 ```
 
-Your discussion of plot 2
+For Plot 2, I created multiple box plots of net profit statistics for each film rating and applied jitter so that the points would be more visible. The graph showed the general distributions of each and the outliers in the data. The findings indicated generally similar trends in the pass and fail groups for net profit however showed the multitude of outliers that had the potential to skew our calculations from the previous data wrangling step. Using facet by binary it allows for side by side visual comparasion of the rating groups. 
 
 ```{R}
-# your plot 3
+mutated_cleangenre %>% group_by(genre, binary) %>% summarize(count=n()) %>% ggplot(aes(binary, count, fill=genre))+ geom_bar(stat= "summary") +  
+    ggtitle("Netflix Genres and Bechdel Test Pass/Fail Counts")+
+      xlab("Bechdel Test Results")+
+       ylab("Count")
+
 ```
 
-Your discussion of plot 3
+Finally, for plot 3, I created a stacked bar graph of total bechdel pass fail counts and the different genres that make up each category. These results correspond with the previously reported data depicting action & adventure movies (in red) as largely making up the fail categories followed by Drama(blue) and comedies(green) although the blue and green in both bars looks similar in width indicating a nearly equal distribution of passes and fails in the drama and comedy categories.
 
 #### Concluding Remarks
 
-If any!
+Overall, I found that although generally Netflix has more films failing than passing the Bechdel test, it may be due to the overall consistant lack of films produced passing the test over the years. Additionally I found that the different in net profit between the two categories were not significant nor did I find significant findings through sorting by rating or genre. Additionally, since this data was acquired in 2019 and since Netflix has increased its collection of movies (including original content), it may be worth re-examining. Finally, repeating this test with other streaming services (Hulu, HBO, etc.) could shed light on whether the gender bias in Netflix's selection arises from the prevalence of this issue in media as a whole or is an issue of the values of the streaming service on the topic of gender equality. 
 
 
 
